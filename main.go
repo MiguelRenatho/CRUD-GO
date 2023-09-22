@@ -1,13 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
 
@@ -20,25 +21,42 @@ type person struct {
 	CIUDAD string `json:"CIUDAD"`
 }
 
-type allPersons = []person
+func coneccionMysql()(conexion *sql.DB) {
+	Driver:="mysql"
+	Usuario:="root"
+	Contraseña:="Renatho2023."
+	Nombre:="COMPARTAMOS"
 
-var persons = allPersons {
-	{
-		DNI: 12345678,
-		NOMBRES: "Miguel", 
-    	APELLIDOS: "Vegas",   
-		FECHANAC: "05/04/1998",    
-		EDAD: 25,     
-		CIUDAD: "Lima",  
-	},
+	conexion, err:= sql.Open(Driver, Usuario+":"+Contraseña+"@tcp(127.0.0.1)/"+Nombre)
+
+	if err!=nil {
+		panic(err.Error())
+	}
+
+	return conexion
 }
 
 func getPersons(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(persons)
+	var personas []person
+	
+	conexion:= coneccionMysql()
+	listaPersonas, err:= conexion.Query("select * from PERSONA")
+	if err!=nil {
+		panic(err.Error())
+	}
+
+	for listaPersonas.Next(){
+		var persona person
+		  err = listaPersonas.Scan(&persona.DNI, &persona.NOMBRES, &persona.APELLIDOS, &persona.FECHANAC, &persona.EDAD, &persona.CIUDAD);
+		  personas = append(personas, persona)
+	}
+	json.NewEncoder(w).Encode(personas)
 }
 
 func getPerson(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var persona person
 	vars := mux.Vars(r)
 	personID, err := strconv.Atoi(vars["dni"]) 
 
@@ -46,13 +64,10 @@ func getPerson(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "No existe DNI")
 		return
 	}
+	conexion:= coneccionMysql()
+	err = conexion.QueryRow("SELECT * FROM PERSONA WHERE DNI = ?", personID).Scan(&persona.DNI, &persona.NOMBRES, &persona.APELLIDOS, &persona.FECHANAC, &persona.EDAD, &persona.CIUDAD)
 
-	for _, person := range persons {
-		if person.DNI == personID {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(person)
-		}
-	}
+	json.NewEncoder(w).Encode(persona)
 }
 
 func deletePerson(w http.ResponseWriter, r *http.Request) {
@@ -63,13 +78,14 @@ func deletePerson(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "No existe DNI")
 		return
 	}
+	conexion:= coneccionMysql()
+	_, err = conexion.Exec("DELETE FROM PERSONA WHERE DNI = ?", personID)
 
-	for i, p := range persons {
-		if p.DNI == personID {
-			persons = append(persons[:i], persons[i + 1:]...)
-			fmt.Fprintf(w, "La persona fue eliminada")
-		}
-	}
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
 }
 
 func updatePerson(w http.ResponseWriter, r *http.Request) {
@@ -82,36 +98,45 @@ func updatePerson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reqBody, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		fmt.Fprintf(w, "Inserta Persona Valida")
-	}
-	json.Unmarshal(reqBody, &updatePersona)
+	decoder := json.NewDecoder(r.Body)
+    if err := decoder.Decode(&updatePersona); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
 
-	for i, p := range persons {
-		if p.DNI == personID {
-			persons = append(persons[:i], persons[i + 1:]...)
-			updatePersona.DNI = personID
-			persons = append(persons, updatePersona)
-
-			fmt.Fprintf(w, "Se actualizo la persona")
-		}
-	}
+	conexion:= coneccionMysql()
+	_, err = conexion.Exec("UPDATE PERSONA SET NOMBRES = ?, APELLIDOS = ?, FECHANAC = ?, EDAD = ?, CIUDAD = ? WHERE DNI = ?", 
+	updatePersona.NOMBRES, updatePersona.APELLIDOS, updatePersona.FECHANAC, updatePersona.EDAD, updatePersona.CIUDAD, personID)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
 
 }
 
-func createPerson(w http.ResponseWriter, r *http.Request) {
+func createPerson(w http.ResponseWriter, r *http.Request) {  
 	var newPerson person
-	reqBody, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		fmt.Fprintf(w, "Inserta Persona Valida")
+ 
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&newPerson); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	json.Unmarshal(reqBody, &newPerson)
-	persons = append(persons, newPerson)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newPerson)
+	conexion:= coneccionMysql()
+	insertarPersonas, err:= conexion.Prepare("INSERT INTO PERSONA (DNI, NOMBRES, APELLIDOS, FECHANAC, EDAD, CIUDAD) VALUES (?,?,?,?,?,?)")
+
+	if err!=nil {
+		panic(err.Error())
+	}
+	_, err = insertarPersonas.Exec(newPerson.DNI, newPerson.NOMBRES, newPerson.APELLIDOS, newPerson.FECHANAC, newPerson.EDAD, newPerson.CIUDAD)
+
+	if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+	fmt.Fprintln(w, "Persona insertada exitosamente.")
 }
 
 func index(w http.ResponseWriter, r *http.Request) {
