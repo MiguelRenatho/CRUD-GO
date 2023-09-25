@@ -13,11 +13,11 @@ import (
 )
 
 type person struct {
-	DNI  int `json:"DNI"`
-    NOMBRES string `json:"Nombres"`
+	DNI  string `json:"DNI"`
+    NOMBRES string `json:"NOMBRES"`
     APELLIDOS  string `json:"APELLIDOS"`
 	FECHANAC  string `json:"FECHANAC"`
-	EDAD  int `json:"EDAD"`
+	EDAD  string `json:"EDAD"`
 	CIUDAD string `json:"CIUDAD"`
 }
 
@@ -116,13 +116,11 @@ func updatePerson(w http.ResponseWriter, r *http.Request) {
 
 func createPerson(w http.ResponseWriter, r *http.Request) {  
 	var newPerson person
- 
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&newPerson); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	conexion:= coneccionMysql()
 	insertarPersonas, err:= conexion.Prepare("INSERT INTO PERSONA (DNI, NOMBRES, APELLIDOS, FECHANAC, EDAD, CIUDAD) VALUES (?,?,?,?,?,?)")
 
